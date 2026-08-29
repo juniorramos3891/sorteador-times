@@ -1,0 +1,66 @@
+rules_version = '2';
+
+// Regras de segurança do Cloud Firestore — Tira Time
+//
+// Protege exclusivamente a estrutura já preparada em index.html pelo
+// módulo window.firestoreSync (Etapa 2 da integração Firebase):
+//
+//   users/{uid}
+//   users/{uid}/footballs/{footballId}
+//   users/{uid}/footballs/{footballId}/players/{playerId}
+//   users/{uid}/footballs/{footballId}/history/{historyId}
+//   users/{uid}/footballs/{footballId}/meta/selection
+//
+// (getUserRef / getUserFootballRef / getUserPlayersRef / getUserPlayerRef /
+// getUserHistoryRef / getUserHistoryRecordRef / getUserSelectionRef —
+// index.html, dentro do <script type="module"> do Firebase.)
+//
+// Nenhum dado é escrito por essas regras; elas só autorizam/bloqueiam
+// operações que a aplicação ainda não realiza (a sincronização real ainda
+// não foi implementada — ver Etapas anteriores).
+//
+// Regra única de acesso, em todos os níveis: só o dono autenticado
+// (request.auth.uid == uid) pode ler ou escrever qualquer coisa dentro do
+// seu próprio users/{uid}. Ninguém não-autenticado, e nenhum outro uid,
+// acessa nada.
+
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // users/{uid} — documento raiz do usuário (hoje sem campos definidos,
+    // reservado para uso futuro).
+    match /users/{uid} {
+      allow read, write: if request.auth != null && request.auth.uid == uid;
+
+      // users/{uid}/footballs/{footballId} — metadados de cada pelada.
+      match /footballs/{footballId} {
+        allow read, write: if request.auth != null && request.auth.uid == uid;
+
+        // users/{uid}/footballs/{footballId}/players/{playerId}
+        match /players/{playerId} {
+          allow read, write: if request.auth != null && request.auth.uid == uid;
+        }
+
+        // users/{uid}/footballs/{footballId}/history/{historyId}
+        match /history/{historyId} {
+          allow read, write: if request.auth != null && request.auth.uid == uid;
+        }
+
+        // users/{uid}/footballs/{footballId}/meta/selection
+        // ("meta" é a coleção; "selection" é o único documento nela hoje —
+        // o match por {metaDoc} cobre esse documento sem hardcodar o nome.)
+        match /meta/{metaDoc} {
+          allow read, write: if request.auth != null && request.auth.uid == uid;
+        }
+      }
+    }
+
+    // Deny-by-default explícito: qualquer caminho fora de users/{uid}/**
+    // listado acima é bloqueado. O Firestore já nega por padrão o que não
+    // é explicitamente liberado por um match — esta regra só torna essa
+    // garantia visível/auditável no próprio arquivo, sem abrir nada novo.
+    match /{document=**} {
+      allow read, write: if false;
+    }
+  }
+}

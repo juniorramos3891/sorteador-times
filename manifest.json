@@ -1,0 +1,23 @@
+{
+  "name": "Sorteador de Times",
+  "short_name": "Sorteador",
+  "description": "Sorteio equilibrado de times de futebol por posição e nível",
+  "start_url": "/sorteador-times/",
+  "scope": "/sorteador-times/",
+  "display": "standalone",
+  "orientation": "portrait-primary",
+  "background_color": "#f5f7f6",
+  "theme_color": "#075e36",
+  "lang": "pt-BR",
+  "categories": ["sports", "utilities"],
+  "icons": [
+    { "src": "/sorteador-times/icons/icon-72.png",   "sizes": "72x72",   "type": "image/png" },
+    { "src": "/sorteador-times/icons/icon-96.png",   "sizes": "96x96",   "type": "image/png" },
+    { "src": "/sorteador-times/icons/icon-128.png",  "sizes": "128x128", "type": "image/png" },
+    { "src": "/sorteador-times/icons/icon-144.png",  "sizes": "144x144", "type": "image/png" },
+    { "src": "/sorteador-times/icons/icon-152.png",  "sizes": "152x152", "type": "image/png" },
+    { "src": "/sorteador-times/icons/icon-192.png",  "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/sorteador-times/icons/icon-384.png",  "sizes": "384x384", "type": "image/png" },
+    { "src": "/sorteador-times/icons/icon-512.png",  "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
+}
