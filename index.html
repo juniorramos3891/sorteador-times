@@ -3309,13 +3309,13 @@ function buildShareText(teams, reserves, gameDate) {
   teams.forEach(t => {
     const header = t.isOut ? `⏳ ${t.name} (aguardando)` : `🎽 Colete ${t.name}`;
     txt += `${header}  (${t.totalStars} ★)\n`;
-    t.players.forEach(p => txt += `  [${p.position}] ${p.name} ${'★'.repeat(p.stars)}${p.late ? ' (atrasado)' : ''}\n`);
+    orderByPosition(t.players).forEach(p => txt += `  [${p.position}] ${p.name}${p.late ? ' (atrasado)' : ''}\n`);
     txt += '\n';
   });
 
   if (reserves.length) {
     txt += '🪑 Reservas:\n';
-    reserves.forEach(p => txt += `  [${p.position}] ${p.name} ${'★'.repeat(p.stars)}\n`);
+    orderByPosition(reserves).forEach(p => txt += `  [${p.position}] ${p.name}\n`);
   }
 
   return txt;
