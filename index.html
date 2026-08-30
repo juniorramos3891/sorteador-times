@@ -2018,9 +2018,20 @@
     .tplayer .pname     { flex: 1; font-size: .88rem; font-weight: 600; }
     .tplayer .pstars    { font-size: .78rem; color: var(--warn); letter-spacing: .5px; }
 
-    /* Compact goals/assists steppers on the history detail's player rows —
-       wraps to its own line on narrow screens instead of squeezing. */
-    .tplayer.stat-row { flex-wrap: wrap; row-gap: 6px; }
+    /* Compact goals/assists steppers on the history detail's player rows.
+       Structural, not automatic: id (avatar+nome+estrelas) and stats
+       (both steppers) are each their own flex group, so on a narrow
+       screen the WHOLE stats group jumps to its own line as one unit
+       (flex-wrap on .stat-row itself) instead of every element — name,
+       stars, each stepper — wrapping independently per player depending
+       on how long that one name happens to be. .tplayer-id gets a firm
+       min-width so the break point is identical for every player; .pname
+       truncates with an ellipsis inside that budget rather than growing
+       the row or shoving .pstars around. */
+    .tplayer.stat-row { flex-wrap: wrap; row-gap: 8px; justify-content: space-between; }
+    .tplayer-id { display: flex; align-items: center; gap: 10px; flex: 1 1 180px; min-width: 150px; }
+    .tplayer.stat-row .pname { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .tplayer-stats { display: flex; align-items: center; gap: 14px; flex: 0 0 auto; }
     .stat-stepper { display: flex; align-items: center; gap: 4px; }
     .stat-btn {
       width: 22px; height: 22px; border-radius: 6px;
@@ -4329,18 +4340,22 @@ function statsPlayerRow(p) {
   const assists = p.assists || 0;
   return `
           <div class="tplayer stat-row">
-            <div class="sm-badge pos-${p.position}">${p.position}</div>
-            <div class="pname">${esc(p.name)}${p.late ? '<span class="late-tag">🕐 Atrasado</span>' : ''}</div>
-            <div class="pstars">${stars(p.stars)}</div>
-            <div class="stat-stepper">
-              <button class="stat-btn" onclick="changeStat('${p.id}','goals',-1)" title="Diminuir gols">−</button>
-              <span class="stat-val">⚽ ${goals}</span>
-              <button class="stat-btn" onclick="changeStat('${p.id}','goals',1)" title="Aumentar gols">+</button>
+            <div class="tplayer-id">
+              <div class="sm-badge pos-${p.position}">${p.position}</div>
+              <div class="pname">${esc(p.name)}${p.late ? '<span class="late-tag">🕐 Atrasado</span>' : ''}</div>
+              <div class="pstars">${stars(p.stars)}</div>
             </div>
-            <div class="stat-stepper">
-              <button class="stat-btn" onclick="changeStat('${p.id}','assists',-1)" title="Diminuir assistências">−</button>
-              <span class="stat-val">👟 ${assists}</span>
-              <button class="stat-btn" onclick="changeStat('${p.id}','assists',1)" title="Aumentar assistências">+</button>
+            <div class="tplayer-stats">
+              <div class="stat-stepper">
+                <button class="stat-btn" onclick="changeStat('${p.id}','goals',-1)" title="Diminuir gols">−</button>
+                <span class="stat-val">⚽ ${goals}</span>
+                <button class="stat-btn" onclick="changeStat('${p.id}','goals',1)" title="Aumentar gols">+</button>
+              </div>
+              <div class="stat-stepper">
+                <button class="stat-btn" onclick="changeStat('${p.id}','assists',-1)" title="Diminuir assistências">−</button>
+                <span class="stat-val">👟 ${assists}</span>
+                <button class="stat-btn" onclick="changeStat('${p.id}','assists',1)" title="Aumentar assistências">+</button>
+              </div>
             </div>
           </div>`;
 }
