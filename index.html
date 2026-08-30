@@ -2324,6 +2324,7 @@ async function loadFootballs() {
     if (f.pricePerPlayer === undefined) { f.pricePerPlayer = 0; needsResave = true; }
     if (f.fieldCost === undefined)      { f.fieldCost = 0;      needsResave = true; }
     if (f.pixKey === undefined)         { f.pixKey = '';        needsResave = true; }
+    if (f.pixRecipientName === undefined) { f.pixRecipientName = ''; needsResave = true; }
   });
   if (needsResave) persistFootballs();
 }
@@ -2668,6 +2669,7 @@ function saveFootball() {
     pricePerPlayer: 0,
     fieldCost: 0,
     pixKey: '',
+    pixRecipientName: '',
     createdAt: new Date().toISOString()
   });
   persistFootballs();
@@ -2718,7 +2720,8 @@ function openSettings() {
     vestColors: { ...(football.vestColors || DEFAULT_VEST_COLORS) },
     pricePerPlayer: football.pricePerPlayer || 0,
     fieldCost: football.fieldCost || 0,
-    pixKey: football.pixKey || ''
+    pixKey: football.pixKey || '',
+    pixRecipientName: football.pixRecipientName || ''
   };
   S.modal = 'settings';
   render();
@@ -2736,7 +2739,7 @@ function saveSettings() {
   const football = S.footballs.find(f => f.id === S.currentFootballId);
   if (!football) return;
 
-  const { name, dayOfWeek, time, location, vestColors, pricePerPlayer, fieldCost, pixKey } = S.settingsForm;
+  const { name, dayOfWeek, time, location, vestColors, pricePerPlayer, fieldCost, pixKey, pixRecipientName } = S.settingsForm;
   if (!name.trim())     { alert('Informe o nome do futebol.'); return; }
   if (!dayOfWeek)        { alert('Selecione o dia do jogo.'); return; }
   if (!time)              { alert('Informe o horário do jogo.'); return; }
@@ -2750,6 +2753,7 @@ function saveSettings() {
   football.pricePerPlayer = Math.max(0, Number(pricePerPlayer) || 0);
   football.fieldCost = Math.max(0, Number(fieldCost) || 0);
   football.pixKey = (pixKey || '').trim();
+  football.pixRecipientName = (pixRecipientName || '').trim();
 
   persistFootballs();
   closeModal();
@@ -3036,11 +3040,17 @@ function buildFinanceShareText(record, football) {
   txt += `Recebido: ${formatBRL(f.totalReceived)}\n`;
   txt += `Em aberto: ${formatBRL(f.totalOpen)}\n`;
   // Snapshotted on the record itself (saveResultToHistory) — never falls
-  // back to the football's CURRENT Pix key, unlike pricePerPlayer/fieldCost
-  // above, so a Pix key added/changed later never appears retroactively on
-  // an older pelada's share text. Records saved before this field existed
-  // simply have no pixKey, which is indistinguishable from "left blank".
-  if (record.pixKey) txt += `\n💠 Pix: ${record.pixKey}\n`;
+  // back to the football's CURRENT Pix key/recipient name, unlike
+  // pricePerPlayer/fieldCost above, so changing them later never appears
+  // retroactively on an older pelada's share text. Records saved before
+  // this field existed simply have no pixKey, which is indistinguishable
+  // from "left blank". The recipient name only ever shows alongside a Pix
+  // key — on its own it's not actionable, so a name with no key is skipped.
+  if (record.pixKey) {
+    txt += `\n💠 Pix: ${record.pixKey}`;
+    if (record.pixRecipientName) txt += ` (${record.pixRecipientName})`;
+    txt += '\n';
+  }
   return txt;
 }
 
@@ -3366,6 +3376,7 @@ function saveResultToHistory() {
     pricePerPlayer: (football && football.pricePerPlayer) || 0,
     fieldCost: (football && football.fieldCost) || 0,
     pixKey: (football && football.pixKey) || '',
+    pixRecipientName: (football && football.pixRecipientName) || '',
     // Deep, fully independent copy — JSON round-trip severs any reference
     // to the live player objects in S.players, so a later cadastro edit
     // (name/stars/position) can never change an already-saved record.
@@ -3784,6 +3795,14 @@ function renderSettingsModal() {
               placeholder="Digite a chave Pix"
               value="${esc(settingsForm.pixKey)}"
               oninput="S.settingsForm.pixKey=this.value">
+          </div>
+
+          <div class="fgroup">
+            <label class="flabel">Nome do recebedor</label>
+            <input class="finput" type="text" autocomplete="off"
+              placeholder="Digite o nome do recebedor"
+              value="${esc(settingsForm.pixRecipientName)}"
+              oninput="S.settingsForm.pixRecipientName=this.value">
           </div>
         </div>
       </div>
