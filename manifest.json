@@ -1,6 +1,6 @@
 {
-  "name": "Sorteador de Times",
-  "short_name": "Sorteador",
+  "name": "Tira Time",
+  "short_name": "Tira Time",
   "description": "Sorteio equilibrado de times de futebol por posição e nível",
   "start_url": "/sorteador-times/",
   "scope": "/sorteador-times/",

@@ -1,4 +1,4 @@
-# ⚽ Sorteador de Times
+# ⚽ Tira Time
 
 PWA para sortear times de futebol de forma equilibrada por **posição** e **nível de estrelas**.
 
