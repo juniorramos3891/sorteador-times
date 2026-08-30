@@ -3023,34 +3023,33 @@ function setRecordFieldCost(value) {
 // Reuses the exact same buildShareText/shareText split already used for
 // history results — only the text-building differs, the actual
 // share-or-copy mechanism (navigator.share with a copy-to-clipboard
-// fallback) is 100% shared, not reimplemented. Shares ONLY the Acerto de
-// Contas view (who paid what) — deliberately omits campo/saldo, which are
-// Controle Financeiro's internal/administrative numbers, not something to
-// broadcast to the group (section 11: "não compartilhar informações
-// internas desnecessárias").
+// fallback) is 100% shared, not reimplemented. A plain payment checklist
+// for the group chat — deliberately omits every money figure (valor por
+// jogador, total, recebido, em aberto, campo, saldo), which stay
+// Controle Financeiro's internal/administrative numbers, never broadcast
+// (section 11: "não compartilhar informações internas desnecessárias").
+// financeForRecord() is still called (unchanged) purely to get the
+// paid/unpaid participant list — its money fields are just never read here.
 function buildFinanceShareText(record, football) {
   const f = financeForRecord(record, football);
   const sorted = [...f.participants].sort((a, b) => a.name.localeCompare(b.name, 'pt-BR', { sensitivity: 'base' }));
 
-  let txt = `⚽ FUTEBOL — ${record.gameDate}\n\n`;
-  txt += `Valor: ${formatBRL(f.pricePerPlayer)} por jogador\n\n`;
+  let txt = '*Lista de Pagamento*\n\n';
+  txt += `⚽ FUTEBOL — ${record.gameDate}\n\n`;
   txt += 'Jogadores:\n';
   sorted.forEach(p => { txt += `${p.paid ? '✅' : '❌'} ${p.name}\n`; });
-  txt += `\nTotal: ${formatBRL(f.totalExpected)}\n`;
-  txt += `Recebido: ${formatBRL(f.totalReceived)}\n`;
-  txt += `Em aberto: ${formatBRL(f.totalOpen)}\n`;
+
   // Snapshotted on the record itself (saveResultToHistory) — never falls
-  // back to the football's CURRENT Pix key/recipient name, unlike
-  // pricePerPlayer/fieldCost above, so changing them later never appears
-  // retroactively on an older pelada's share text. Records saved before
-  // this field existed simply have no pixKey, which is indistinguishable
-  // from "left blank". The recipient name only ever shows alongside a Pix
-  // key — on its own it's not actionable, so a name with no key is skipped.
-  if (record.pixKey) {
-    txt += `\n💠 Pix: ${record.pixKey}`;
-    if (record.pixRecipientName) txt += ` (${record.pixRecipientName})`;
-    txt += '\n';
-  }
+  // back to the football's CURRENT Pix key/recipient name, so changing
+  // them later never appears retroactively on an older pelada's share
+  // text. Records saved before these fields existed simply have neither,
+  // which is indistinguishable from "left blank". Independent of each
+  // other: either line can appear alone, both, or neither.
+  const pixLines = [];
+  if (record.pixKey) pixLines.push(`💠 Pix: ${record.pixKey}`);
+  if (record.pixRecipientName) pixLines.push(`👤 Recebedor: ${record.pixRecipientName}`);
+  if (pixLines.length) txt += `\n${pixLines.join('\n')}\n`;
+
   return txt;
 }
 
