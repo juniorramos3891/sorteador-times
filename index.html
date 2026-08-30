@@ -359,6 +359,46 @@
     .dash-add-btn:hover  { background: var(--green-d); }
     .dash-add-btn:active { background: var(--green-d); box-shadow: 0 1px 3px rgba(0,0,0,.08); }
 
+    /* ── INSTALL PWA CARD (Home) ──
+       Rendered only while S.pwaInstallEvent holds a real `beforeinstallprompt`
+       event (see renderInstallCard()/BOOT section) — never a fake/simulated
+       install affordance. Own class, doesn't touch .dash-card/.dash-add-btn. */
+    .install-card {
+      display: flex;
+      align-items: center;
+      gap: 12px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 12px 14px;
+      margin-bottom: 14px;
+      cursor: pointer;
+      box-shadow: var(--sh);
+      transition: border-color .2s ease, box-shadow .2s ease;
+    }
+    .install-card:hover {
+      border-color: var(--green);
+      box-shadow: 0 4px 12px rgba(0,0,0,.08);
+    }
+    .install-card-icon {
+      width: 38px; height: 38px; flex-shrink: 0;
+      border-radius: 10px;
+      background: var(--green-l);
+      display: flex; align-items: center; justify-content: center;
+      font-size: 1.05rem;
+    }
+    .install-card-text { flex: 1; min-width: 0; }
+    .install-card-title {
+      color: var(--text);
+      font-weight: 700;
+      font-size: .92rem;
+    }
+    .install-card-sub {
+      color: var(--muted);
+      font-size: .78rem;
+      margin-top: 1px;
+    }
+
     /* ── DASHBOARD AUTH BAR ──
        Sits between the logo banner and the futebol cards. Two states:
        signed-out shows the Google button; signed-in shows avatar/name +
@@ -2160,7 +2200,18 @@ let S = {
   // gates on this the same way it gates on authUser, showing the same
   // loading spinner instead of a stale/empty Dashboard or List while the
   // fetch is in flight.
-  dataLoading: false
+  dataLoading: false,
+  // PWA install affordance — pure runtime/UI state, never persisted (no
+  // localStorage, no Firestore). Holds the real `beforeinstallprompt` event
+  // while the browser keeps it valid, so the Home's own "Instalar Tira
+  // Time" card can trigger the browser's native install flow later via
+  // installApp() — see the "PWA INSTALL" section near the end of this
+  // script. Stays null on browsers/platforms that never fire the event
+  // (e.g. iOS Safari), so the card simply never appears there.
+  pwaInstallEvent: null,
+  // Set true once the `appinstalled` event fires, so the card stays hidden
+  // for the rest of the session even after pwaInstallEvent is cleared.
+  pwaInstalled: false
 };
 
 // ──────────────────────────────────────────────
@@ -3519,6 +3570,22 @@ function stars(n) {
 // Sair) here — render()'s auth gate means renderDashboard() is never
 // reached while S.authUser is null/undefined; the "Entrar com Google"
 // branch only ever renders from renderLoginScreen().
+// Shown only when a real `beforeinstallprompt` event is currently held in
+// S.pwaInstallEvent and the app isn't already installed/running standalone
+// — never a fake/simulated install affordance. Stays empty on browsers/
+// platforms that never fire the event (e.g. iOS Safari).
+function renderInstallCard() {
+  if (!S.pwaInstallEvent || S.pwaInstalled || isStandaloneDisplay()) return '';
+  return `
+    <div class="install-card" onclick="installApp()">
+      <div class="install-card-icon">⬇️</div>
+      <div class="install-card-text">
+        <div class="install-card-title">Instalar Tira Time</div>
+        <div class="install-card-sub">Tenha acesso rápido ao Tira Time pela tela inicial.</div>
+      </div>
+    </div>`;
+}
+
 function renderDashboard() {
   const sorted = [...S.footballs].sort((a, b) => (b.createdAt || '').localeCompare(a.createdAt || ''));
 
@@ -3528,6 +3595,7 @@ function renderDashboard() {
       <img src="Images/Logo.png" alt="Tira Time" loading="eager">
     </div>
     ${renderAuthBar()}
+    ${renderInstallCard()}
     ${sorted.length === 0 ? `
       <div class="empty">
         <div class="ico">⚽</div>
@@ -4899,6 +4967,55 @@ if ('serviceWorker' in navigator) {
   window.addEventListener('load', () =>
     navigator.serviceWorker.register('sw.js').catch(console.warn)
   );
+}
+
+// ──────────────────────────────────────────────
+//  PWA INSTALL (Home)
+//  Uses ONLY the browser's native beforeinstallprompt mechanism — never
+//  simulates or fakes an install affordance. On browsers/platforms that
+//  never fire beforeinstallprompt (e.g. iOS Safari), S.pwaInstallEvent
+//  simply stays null and renderInstallCard() never renders anything; the
+//  app keeps working exactly as before there.
+// ──────────────────────────────────────────────
+
+function isStandaloneDisplay() {
+  return window.matchMedia('(display-mode: standalone)').matches;
+}
+
+// Chrome/Edge fire this instead of showing their own automatic install
+// banner; preventDefault() suppresses that banner so the Home's own
+// "Instalar Tira Time" card (see renderInstallCard()) can trigger the same
+// native prompt later, on the user's own tap.
+window.addEventListener('beforeinstallprompt', (e) => {
+  e.preventDefault();
+  S.pwaInstallEvent = e;
+  render();
+});
+
+// Fires once the user actually completes installation — from our own
+// prompt() call below or from the browser's own menu — so the card stays
+// hidden for the rest of the session either way.
+window.addEventListener('appinstalled', () => {
+  S.pwaInstallEvent = null;
+  S.pwaInstalled = true;
+  render();
+});
+
+async function installApp() {
+  const promptEvent = S.pwaInstallEvent;
+  if (!promptEvent) return;
+  try {
+    promptEvent.prompt();
+    // A beforeinstallprompt event can only be used once — clear it (and
+    // hide the card) right after prompt() fires, regardless of the
+    // eventual accept/dismiss outcome below.
+    S.pwaInstallEvent = null;
+    render();
+    const choice = await promptEvent.userChoice;
+    console.log('PWA install prompt outcome:', choice.outcome);
+  } catch (err) {
+    console.warn(err);
+  }
 }
 </script>
 
