@@ -2118,76 +2118,110 @@ let S = {
   // "FIREBASE AUTH (UI bridge)" section below. Kept in sync by
   // onFirebaseAuthChange(), called from the Firebase module script at the
   // bottom of the page.
-  authUser: undefined
+  authUser: undefined,
+  // true while footballs/players/history/selection are being fetched from
+  // Firestore (see loadFootballs()/loadPlayers()/loadHistory(), all async
+  // since Etapa 4) — set around onFirebaseAuthChange()'s loadFootballs()
+  // call and openFootball()'s loadPlayers()/loadHistory() calls. render()
+  // gates on this the same way it gates on authUser, showing the same
+  // loading spinner instead of a stale/empty Dashboard or List while the
+  // fetch is in flight.
+  dataLoading: false
 };
 
 // ──────────────────────────────────────────────
 //  PERSISTENCE
 // ──────────────────────────────────────────────
 
-function loadPlayers() {
-  S.players = [];
+// Firestore-only read (Etapa 4) — localStorage is never consulted here,
+// and a Firestore failure never falls back to it: S.players/
+// S.selectedPlayerIds simply end up empty (see the catches below), same as
+// "logged out"/"no data yet". persist()/saveSelectedPlayerIds() below still
+// dual-write to localStorage (untouched, Etapa 3) — this function just no
+// longer reads that copy back.
+async function loadPlayers() {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) {
+    S.players = [];
+    S.selectedPlayerIds = new Set();
+    return;
+  }
+
   try {
-    const d = localStorage.getItem(scopedKey(STORAGE_KEY));
-    if (d) {
-      const parsed = JSON.parse(d);
-      if (Array.isArray(parsed)) S.players = parsed;
-    }
-  } catch (_) {}
+    S.players = await window.firestoreSync.readPlayers(uid, S.currentFootballId);
+  } catch (err) {
+    console.error('Falha ao carregar jogadores do Firestore:', err);
+    S.players = [];
+  }
 
   let savedIds = [];
   try {
-    const s = localStorage.getItem(scopedKey(SELECTED_STORAGE_KEY));
-    if (s) {
-      const parsed = JSON.parse(s);
-      if (Array.isArray(parsed)) savedIds = parsed;
-    }
-  } catch (_) {}
+    savedIds = await window.firestoreSync.readSelection(uid, S.currentFootballId);
+  } catch (err) {
+    console.error('Falha ao carregar seleção do Firestore:', err);
+  }
 
   // Drop ids for players that no longer exist (e.g. deleted since the
   // selection was saved) — S.players stays the sole source of truth.
   const validIds = new Set(S.players.map(p => p.id));
   S.selectedPlayerIds = new Set(savedIds.filter(id => validIds.has(id)));
-  saveSelectedPlayerIds(); // persist the pruned set back, dropping stale ids
+  saveSelectedPlayerIds(); // persist the pruned set back (dual-write), dropping stale ids
 }
 
 function persist() {
   try { localStorage.setItem(scopedKey(STORAGE_KEY), JSON.stringify(S.players)); } catch (_) {}
+  syncPlayersToFirestore();
 }
 
 function saveSelectedPlayerIds() {
   try {
     localStorage.setItem(scopedKey(SELECTED_STORAGE_KEY), JSON.stringify(Array.from(S.selectedPlayerIds)));
   } catch (_) {}
+  syncSelectionToFirestore();
 }
 
-function loadHistory() {
-  S.history = [];
+// Firestore-only read (Etapa 4) — see loadPlayers() above for the same
+// rationale (no localStorage read, no fallback on failure).
+async function loadHistory() {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) {
+    S.history = [];
+    return;
+  }
+
   try {
-    const h = localStorage.getItem(scopedKey(HISTORY_KEY));
-    if (h) {
-      const parsed = JSON.parse(h);
-      if (Array.isArray(parsed)) S.history = parsed;
-    }
-  } catch (_) {}
+    S.history = await window.firestoreSync.readHistory(uid, S.currentFootballId);
+  } catch (err) {
+    console.error('Falha ao carregar histórico do Firestore:', err);
+    S.history = [];
+  }
 }
 
 function persistHistory() {
   try { localStorage.setItem(scopedKey(HISTORY_KEY), JSON.stringify(S.history)); } catch (_) {}
+  syncHistoryToFirestore();
 }
 
 // ──────────────────────────────────────────────
 //  FUTEBÓIS (dashboard) — metadata + isolation boundary
 // ──────────────────────────────────────────────
 
-function loadFootballs() {
+// Firestore-only read (Etapa 4) — see loadPlayers() above for the same
+// rationale (no localStorage read, no fallback on failure). Called only
+// from onFirebaseAuthChange() once a real signed-in user is confirmed —
+// there is no uid to read with while S.authUser is null/undefined, so this
+// is never called in that state (see the "FIREBASE AUTH (UI bridge)"
+// section, and the BOOT section at the bottom of the file).
+async function loadFootballs() {
+  const uid = firestoreUid();
+  if (!uid || !window.firestoreSync) { S.footballs = []; return; }
+
   try {
-    const f = localStorage.getItem(FOOTBALLS_KEY);
-    if (f) {
-      const parsed = JSON.parse(f);
-      if (Array.isArray(parsed)) S.footballs = parsed;
-    }
-  } catch (_) {}
+    S.footballs = await window.firestoreSync.readFootballs(uid);
+  } catch (err) {
+    console.error('Falha ao carregar peladas do Firestore:', err);
+    S.footballs = [];
+  }
 
   // Backfill for futebóis created before dayOfWeek/time/vestColors/
   // pricePerPlayer/fieldCost existed (older ones only had a free-form
@@ -2211,6 +2245,64 @@ function loadFootballs() {
 
 function persistFootballs() {
   try { localStorage.setItem(FOOTBALLS_KEY, JSON.stringify(S.footballs)); } catch (_) {}
+  syncFootballsToFirestore();
+}
+
+// ──────────────────────────────────────────────
+//  FIRESTORE — dual-write mirror (Etapa 3)
+// ──────────────────────────────────────────────
+//
+// persist*()/save*() above still write to localStorage too (unchanged,
+// Etapa 3) — nothing here is ever read back into S. Each helper below is
+// called right after the matching local persist*()/save*() call and fires
+// a best-effort COPY of that same data into Firestore, via
+// window.firestoreSync (module script at the bottom of the page). Every
+// call is fire-and-forget — never awaited here — and firestoreSync itself
+// swallows any rejection (offline, signed out, security rules), so a
+// Firestore WRITE failure can never affect the app's normal local
+// behavior. Since Etapa 4, load*() (above) reads exclusively from
+// Firestore via window.firestoreSync.read*() — localStorage is no longer
+// a read source, only this passive write-mirror target.
+
+function firestoreUid() {
+  const user = window.firebaseAuth && window.firebaseAuth.currentUser;
+  return user ? user.uid : null;
+}
+
+function syncFootballsToFirestore() {
+  const uid = firestoreUid();
+  if (!uid || !window.firestoreSync) return;
+  window.firestoreSync.writeFootballs(uid, S.footballs);
+}
+
+function syncPlayersToFirestore() {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) return;
+  window.firestoreSync.writePlayers(uid, S.currentFootballId, S.players);
+}
+
+function syncPlayerDeleteToFirestore(playerId) {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) return;
+  window.firestoreSync.deletePlayer(uid, S.currentFootballId, playerId);
+}
+
+function syncSelectionToFirestore() {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) return;
+  window.firestoreSync.writeSelection(uid, S.currentFootballId, Array.from(S.selectedPlayerIds));
+}
+
+function syncHistoryToFirestore() {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) return;
+  window.firestoreSync.writeHistory(uid, S.currentFootballId, S.history);
+}
+
+function syncHistoryDeleteToFirestore(historyId) {
+  const uid = firestoreUid();
+  if (!uid || !S.currentFootballId || !window.firestoreSync) return;
+  window.firestoreSync.deleteHistoryRecord(uid, S.currentFootballId, historyId);
 }
 
 // One-time migration: the pre-dashboard version stored players/selection/
@@ -2542,20 +2634,26 @@ function saveFootball() {
   closeModal(); // S.view stays 'dashboard' — already where we want to be
 }
 
-// Enters a futebol: loads ITS players/selection/history (via the scoped
-// keys — see scopedKey) into the exact same S.players/S.selectedPlayerIds/
-// S.history the sorter already uses, so nothing downstream needs to know
-// futebóis exist at all.
-function openFootball(id) {
+// Enters a futebol: loads ITS players/selection/history from Firestore
+// (Etapa 4 — loadPlayers()/loadHistory() are now async) into the exact
+// same S.players/S.selectedPlayerIds/S.history the sorter already uses, so
+// nothing downstream needs to know futebóis (or Firestore) exist at all.
+// S.dataLoading gates render() on the same loading spinner used for the
+// auth check while the fetch is in flight, so the List screen never shows
+// with stale/empty data from whatever football was open before.
+async function openFootball(id) {
   const football = S.footballs.find(f => f.id === id);
   if (!football) return;
   S.currentFootballId = id;
-  loadPlayers();
-  loadHistory();
   S.result = null;
   S.savedResultId = null;
-  S.view = 'list';
   S.modal = null;
+  S.dataLoading = true;
+  render();
+  await loadPlayers();
+  await loadHistory();
+  S.dataLoading = false;
+  S.view = 'list';
   render();
 }
 
@@ -3020,6 +3118,7 @@ function removePlayer(id) {
   S.selectedPlayerIds.delete(id);
   persist();
   saveSelectedPlayerIds();
+  syncPlayerDeleteToFirestore(id); // persist() only re-writes survivors — the removed doc needs an explicit delete
   render();
 }
 
@@ -3202,6 +3301,7 @@ function deleteHistoryRecord(id) {
   if (S.savedResultId === id) S.savedResultId = null; // let the current result be re-saved
   S.historyDeleteId = null;
   persistHistory();
+  syncHistoryDeleteToFirestore(id); // persistHistory() only re-writes survivors — the removed doc needs an explicit delete
   render();
 }
 
@@ -4507,6 +4607,16 @@ function render() {
     document.body.classList.remove('has-tabbar');
     return;
   }
+  // Same idea, one step later: a confirmed user, but their footballs/
+  // players/history are still being fetched from Firestore (see
+  // onFirebaseAuthChange()/openFootball()) — show the identical loading
+  // spinner rather than a Dashboard/List that would otherwise briefly
+  // render empty or with the previous football's data.
+  if (S.dataLoading) {
+    app.innerHTML = renderAuthLoading();
+    document.body.classList.remove('has-tabbar');
+    return;
+  }
 
   let html;
   if      (S.view === 'dashboard') html = renderDashboard();
@@ -4564,9 +4674,33 @@ function render() {
 
 // Called by the module script's onAuthStateChanged listener every time
 // sign-in state changes (including once on page load with the previous
-// session's user, if any).
-function onFirebaseAuthChange(user) {
+// session's user, if any). Etapa 4: this is also where footballs get
+// loaded from Firestore — there is no earlier point with a real uid to
+// read with (see the BOOT section at the bottom of the file, which no
+// longer calls loadFootballs() itself).
+async function onFirebaseAuthChange(user) {
   S.authUser = user;
+
+  if (!user) {
+    // Signed out (or never signed in) — never invent data and never fall
+    // back to localStorage; just clear whatever was in memory so nothing
+    // from a previous session/account lingers once render() reaches the
+    // login screen below.
+    S.footballs = [];
+    S.players = [];
+    S.selectedPlayerIds = new Set();
+    S.history = [];
+    S.currentFootballId = null;
+    S.view = 'dashboard';
+    S.dataLoading = false;
+    render();
+    return;
+  }
+
+  S.dataLoading = true;
+  render();
+  await loadFootballs();
+  S.dataLoading = false;
   render();
 }
 
@@ -4649,8 +4783,22 @@ function renderAuthLoading() {
 //  BOOT
 // ──────────────────────────────────────────────
 
-loadFootballs();
-migrateLegacyDataIfNeeded();
+// Etapa 4: loadFootballs() is no longer called here — it's async and
+// needs a signed-in uid, neither of which exist yet at this point (Firebase
+// hasn't resolved auth state; S.authUser is still `undefined`). This first
+// render() just shows the loading spinner (see the auth gate at the top of
+// render()); onFirebaseAuthChange() — called once Firebase confirms the
+// session, from the module script at the bottom of the page — is what
+// actually calls loadFootballs() once a real uid is available.
+//
+// migrateLegacyDataIfNeeded() is also no longer called: it exists to adopt
+// PRE-dashboard, unscoped localStorage data (bare STORAGE_KEY/HISTORY_KEY/
+// SELECTED_STORAGE_KEY, no football id suffix) into a new "Meu futebol" —
+// but that adoption writes only to localStorage/S.footballs, which is no
+// longer read by anything (load*() above reads exclusively from Firestore).
+// Running it would silently create local-only state that never appears in
+// the UI. The function itself is left in place, unused, in case a future
+// step wants to migrate that specific legacy shape into Firestore.
 render();
 
 // Register service worker
@@ -4691,7 +4839,7 @@ if ('serviceWorker' in navigator) {
     signOut,
     onAuthStateChanged
   } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-auth.js";
-  import { getFirestore, doc, collection } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
+  import { getFirestore, doc, collection, setDoc, deleteDoc, getDocs, getDoc } from "https://www.gstatic.com/firebasejs/10.14.1/firebase-firestore.js";
 
   // Config do app Web "Tira Time" (Firebase Console > Configurações do
   // projeto > Seus apps > Config).
@@ -4708,11 +4856,12 @@ if ('serviceWorker' in navigator) {
   const auth = getAuth(firebaseApp);
   const googleProvider = new GoogleAuthProvider();
 
-  // Preparação apenas — nenhuma leitura/escrita acontece aqui. getFirestore()
-  // apenas cria o handle do SDK sobre a MESMA firebaseApp já inicializada
-  // acima (nenhum segundo initializeApp()); exposto em window.firestoreDb
-  // para uso futuro. players/selectedPlayerIds/footballs/history continuam
-  // 100% em localStorage, intocados.
+  // getFirestore() apenas cria o handle do SDK sobre a MESMA firebaseApp já
+  // inicializada acima (nenhum segundo initializeApp()); exposto em
+  // window.firestoreDb. Desde a Etapa 4, este é o handle usado tanto para
+  // as leituras (players/selectedPlayerIds/footballs/history — ver
+  // read*() abaixo, chamadas pelos load*() do script clássico) quanto
+  // para o dual-write (write*()) já existente.
   const db = getFirestore(firebaseApp);
   window.firestoreDb = db;
 
@@ -4733,6 +4882,13 @@ if ('serviceWorker' in navigator) {
 
   function getUserRef(uid) {
     return doc(db, 'users', uid);
+  }
+
+  // Collection ref (plural) — added in Etapa 4 alongside the read*()
+  // functions below, which need to list ALL of a user's footballs.
+  // getUserFootballRef (singular, doc ref) below is unchanged.
+  function getUserFootballsRef(uid) {
+    return collection(db, 'users', uid, 'footballs');
   }
 
   function getUserFootballRef(uid, footballId) {
@@ -4759,15 +4915,99 @@ if ('serviceWorker' in navigator) {
     return doc(db, 'users', uid, 'footballs', footballId, 'meta', 'selection');
   }
 
-  // Exposto somente para uso futuro — nada no app chama isto ainda.
+  // ── FIRESTORE — leitura / fonte de verdade (Etapa 4) ──
+  // Called by the classic script's load*() functions (loadFootballs/
+  // loadPlayers/loadHistory) — Firestore is now the ONLY place those read
+  // from; localStorage is never consulted by them anymore. Each function
+  // below does exactly one getDocs()/getDoc() and returns plain data (no
+  // caching, no merging with anything local) — the caller decides what to
+  // do on failure (see load*() in the classic script, which never falls
+  // back to localStorage: an error here means an empty result, not stale
+  // local data).
+  async function readFootballs(uid) {
+    const snap = await getDocs(getUserFootballsRef(uid));
+    return snap.docs.map(d => d.data());
+  }
+
+  async function readPlayers(uid, footballId) {
+    const snap = await getDocs(getUserPlayersRef(uid, footballId));
+    return snap.docs.map(d => d.data());
+  }
+
+  // Returns just the array of ids — [] both when the doc has never been
+  // written (nobody marked presence yet) and when it exists but is empty;
+  // the caller can't tell those apart from the array alone, same as the
+  // old localStorage-missing-key case.
+  async function readSelection(uid, footballId) {
+    const snap = await getDoc(getUserSelectionRef(uid, footballId));
+    return snap.exists() ? (snap.data().ids || []) : [];
+  }
+
+  async function readHistory(uid, footballId) {
+    const snap = await getDocs(getUserHistoryRef(uid, footballId));
+    return snap.docs.map(d => d.data());
+  }
+
+  // ── FIRESTORE — dual-write mirror (Etapa 3) ──
+  // Best-effort COPY of whatever the classic script's persist*()/save*()
+  // functions write — localStorage AND Firestore both get every write
+  // (dual-write, unchanged since Etapa 3); only READS moved to
+  // Firestore-only in Etapa 4 (see read*() above). Every rejection here
+  // (offline, signed out, security rules) is swallowed right here so a
+  // Firestore write failure can never affect the app's normal behavior.
+  function writeFootballs(uid, footballs) {
+    footballs.forEach(f => {
+      setDoc(getUserFootballRef(uid, f.id), { ...f }).catch(() => {});
+    });
+  }
+
+  function writePlayers(uid, footballId, players) {
+    players.forEach(p => {
+      setDoc(getUserPlayerRef(uid, footballId, p.id), { ...p }).catch(() => {});
+    });
+  }
+
+  function deletePlayer(uid, footballId, playerId) {
+    deleteDoc(getUserPlayerRef(uid, footballId, playerId)).catch(() => {});
+  }
+
+  function writeSelection(uid, footballId, selectedIds) {
+    setDoc(getUserSelectionRef(uid, footballId), { ids: selectedIds }).catch(() => {});
+  }
+
+  function writeHistory(uid, footballId, records) {
+    records.forEach(r => {
+      setDoc(getUserHistoryRecordRef(uid, footballId, r.id), { ...r }).catch(() => {});
+    });
+  }
+
+  function deleteHistoryRecord(uid, footballId, historyId) {
+    deleteDoc(getUserHistoryRecordRef(uid, footballId, historyId)).catch(() => {});
+  }
+
+  // Exposto para o script clássico: read*() é chamado pelos load*() (fonte
+  // de verdade, Etapa 4); write*()/delete*() são chamados pelos
+  // sync*ToFirestore() logo após cada persist*()/save*() local (dual-write,
+  // Etapa 3) — ver a seção PERSISTENCE do script clássico.
   window.firestoreSync = {
     getUserRef,
+    getUserFootballsRef,
     getUserFootballRef,
     getUserPlayersRef,
     getUserPlayerRef,
     getUserHistoryRef,
     getUserHistoryRecordRef,
-    getUserSelectionRef
+    getUserSelectionRef,
+    readFootballs,
+    readPlayers,
+    readSelection,
+    readHistory,
+    writeFootballs,
+    writePlayers,
+    deletePlayer,
+    writeSelection,
+    writeHistory,
+    deleteHistoryRecord
   };
 
   function signInWithGoogle() {
