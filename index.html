@@ -2650,6 +2650,7 @@ function openAddFootball() {
   S.footballForm = { name: '', dayOfWeek: '', time: '', location: '' };
   S.modal = 'addFootball';
   render();
+  navPush(true); // Dashboard → Novo Futebol
 }
 
 function saveFootball() {
@@ -2697,12 +2698,14 @@ async function openFootball(id) {
   S.dataLoading = false;
   S.view = 'list';
   render();
+  navPush(true); // Dashboard → List
 }
 
 function goToDashboard() {
   S.currentFootballId = null;
   S.view = 'dashboard';
   render();
+  navBack(); // List → Dashboard
 }
 
 // ──────────────────────────────────────────────
@@ -2712,6 +2715,11 @@ function goToDashboard() {
 function openSettings() {
   const football = S.footballs.find(f => f.id === S.currentFootballId);
   if (!football) return;
+  // Captured BEFORE the S.modal assignment below: true only when reached
+  // straight from the roster (no tab modal open yet). Tapping this tab
+  // while Ranking/Histórico/Financeiro is already open is a sibling
+  // switch, not a fresh chain — see navPush()'s isNewChain param.
+  const cameFromClean = S.modal === null;
   S.settingsForm = {
     name: football.name,
     dayOfWeek: football.dayOfWeek,
@@ -2725,6 +2733,7 @@ function openSettings() {
   };
   S.modal = 'settings';
   render();
+  navPush(cameFromClean); // List → Settings (or a sibling tab → Settings)
 }
 
 // Edits the SAME football object already sitting in S.footballs (found by
@@ -2774,6 +2783,7 @@ function requestDeleteFootball() {
   S.deleteFootballError = null;
   S.modal = 'deleteFootballConfirm';
   render();
+  navPush(false); // Settings → Excluir grupo? (still nested inside Settings' chain)
 }
 
 // Deletes the current football and everything under it from Firestore
@@ -2819,11 +2829,17 @@ async function deleteFootballConfirmed() {
   S.deleteFootballError = null;
   S.view = 'dashboard';
   render();
+  navFlatten(0); // hard reset: the whole football is gone, back to Dashboard regardless of how deep we were
 }
 
 function openRanking() {
+  // See openSettings()'s cameFromClean comment: a direct tab-to-tab
+  // switch must NOT reset navBaseDepth, or closeModal()'s one-jump
+  // flatten later lands on the previous tab instead of List.
+  const cameFromClean = S.modal === null;
   S.modal = 'ranking';
   render();
+  navPush(cameFromClean); // List → Ranking (or a sibling tab → Ranking)
 }
 
 // ──────────────────────────────────────────────
@@ -2953,6 +2969,8 @@ function financeMonthlyBreakdown(year) {
 // Always opens on the real current month/year (section 2) — the filter
 // only changes what's displayed, it is never remembered across opens.
 function openFinance() {
+  // See openSettings()'s cameFromClean comment.
+  const cameFromClean = S.modal === null;
   S.financeRecordId = null;
   S.financeView = 'dashboard';
   const now = new Date();
@@ -2960,11 +2978,13 @@ function openFinance() {
   S.financeFilterMonth = now.getMonth() + 1;
   S.modal = 'finance';
   render();
+  navPush(cameFromClean); // List → Financeiro (or a sibling tab → Financeiro)
 }
 
 function openFinanceDetail(recordId) {
   S.financeRecordId = recordId;
   render();
+  navPush(false); // Financeiro → detalhe da pelada (nested)
 }
 
 // Returns to whichever period is currently filtered (dashboard) — the
@@ -2973,6 +2993,7 @@ function openFinanceDetail(recordId) {
 function backToFinanceDashboard() {
   S.financeRecordId = null;
   render();
+  navBack();
 }
 
 // month: a number (1-12), or 'all'/''/null for "Todos" (visão anual).
@@ -2987,6 +3008,7 @@ function openFinanceArchive() {
   S.financeRecordId = null;
   S.financeView = 'archive';
   render();
+  navPush(false); // Financeiro → Arquivo (nested)
 }
 
 // Selecting an archived month just re-points the SAME filter the main
@@ -3187,6 +3209,7 @@ function openAdd() {
   S.form = { name: '', position: 'M', stars: 2 };
   S.modal = 'addEdit';
   render();
+  navPush(true); // List → Novo Jogador
 }
 
 function openEdit(id) {
@@ -3196,6 +3219,7 @@ function openEdit(id) {
   S.form = { name: p.name, position: p.position, stars: p.stars };
   S.modal = 'addEdit';
   render();
+  navPush(true); // List → Editar Jogador
 }
 
 function closeModal() {
@@ -3214,6 +3238,7 @@ function closeModal() {
   S.deleteFootballError = null;
   clearTimeout(rankingShareTimer);
   render();
+  navFlatten(); // pop however many app-pushed entries the just-closed modal/detail/dialog chain used, in one jump
 }
 
 function savePlayer() {
@@ -3250,6 +3275,7 @@ function requestRemovePlayer(id) {
   S.confirmDeleteId = id;
   S.modal = 'confirmDelete';
   render();
+  navPush(true); // List → Remover jogador?
 }
 
 function confirmRemovePlayer() {
@@ -3257,6 +3283,7 @@ function confirmRemovePlayer() {
   S.modal = null;
   S.confirmDeleteId = null;
   removePlayer(id);
+  navBack();
 }
 
 // Presence toggle for the current pelada. Does not touch player records
@@ -3281,16 +3308,19 @@ function resetSelection() {
 function requestResetSelection() {
   S.modal = 'confirmReset';
   render();
+  navPush(true); // List → Limpar presença?
 }
 
 function confirmResetSelection() {
   S.modal = null;
   resetSelection();
+  navBack();
 }
 
 function openSort() {
   S.modal = 'sort';
   render();
+  navPush(true); // List/Result → Sortear Times (modal was null either way)
 }
 
 function changePPT(d) {
@@ -3311,11 +3341,17 @@ function doSort() {
   S.modal  = null;
   render();
   window.scrollTo(0, 0);
+  // The Sort dialog itself is never meaningfully "returned to" once
+  // sorted — relabel its entry as Result in place (navReplace) rather
+  // than leaving "Sortear Times" on the stack, so goBack() below still
+  // pops in exactly one step, straight to whatever was open before Sort.
+  navReplace();
 }
 
 function goBack() {
   S.view = 'list';
   render();
+  navBack(); // Result → List
 }
 
 // Shared by both a live result and a saved history record — the caller
@@ -3390,23 +3426,28 @@ function saveResultToHistory() {
 }
 
 function openHistory() {
+  // See openSettings()'s cameFromClean comment.
+  const cameFromClean = S.modal === null;
   S.historyViewId = null;
   S.addLateRecordId = null;
   S.addLateSelections = new Set();
   S.modal = 'history';
   render();
+  navPush(cameFromClean); // List → Histórico (or a sibling tab → Histórico)
 }
 
 function viewHistoryRecord(id) {
   S.historyViewId = id;
   S.statsSavedFlash = false;
   render();
+  navPush(false); // Histórico → detalhe do sorteio (nested)
 }
 
 function backToHistoryList() {
   S.historyViewId = null;
   S.statsSavedFlash = false;
   render();
+  navBack();
 }
 
 // Opens the custom confirmation modal for a record's deletion (replaces
@@ -3416,6 +3457,7 @@ function backToHistoryList() {
 function requestDeleteHistoryRecord(id) {
   S.historyDeleteId = id;
   render();
+  navPush(false); // Histórico → Excluir sorteio? (nested)
 }
 
 function deleteHistoryRecord(id) {
@@ -3426,6 +3468,7 @@ function deleteHistoryRecord(id) {
   persistHistory();
   syncHistoryDeleteToFirestore(id); // persistHistory() only re-writes survivors — the removed doc needs an explicit delete
   render();
+  navBack();
 }
 
 function shareHistoryRecord(id) {
@@ -3458,12 +3501,14 @@ function openAddLatePlayers(recordId) {
   S.addLateRecordId = recordId;
   S.addLateSelections = new Set();
   render();
+  navPush(false); // detalhe do sorteio → Adicionar atrasado (nested)
 }
 
 function closeAddLatePlayers() {
   S.addLateRecordId = null;
   S.addLateSelections = new Set();
   render();
+  navBack();
 }
 
 function toggleLatePlayer(id) {
@@ -4795,6 +4840,177 @@ const TAB_SCREEN_MODALS = new Set(['settings', 'ranking', 'history', 'finance'])
 // what to render, only how the freshly-inserted .overlay is classed.
 let lastModal = null;
 
+// ──────────────────────────────────────────────
+//  NAVIGATION HISTORY — Android/browser Back button
+// ──────────────────────────────────────────────
+//
+// index.html has no URL routing (one page, no hash, no pathname segments
+// — GitHub Pages only serves this one file) and, until now, never touched
+// the browser's session history either: every "screen" was just S.view/
+// S.modal/S.historyViewId/S.addLateRecordId/S.financeView/S.financeRecordId
+// mutated in place, then render(). Native Back therefore had nothing of
+// the app's own to consume and fell straight through to whatever page
+// existed before this one (or closed the PWA).
+//
+// Fix: every FORWARD navigation (opening a screen/tab/detail/dialog —
+// see each function below that calls navPush) pushes one history entry
+// carrying a snapshot of those same fields. Every BACKWARD action already
+// in the app (closeModal, goBack, backToHistoryList, backToFinanceDashboard,
+// closeAddLatePlayers, goToDashboard, and the two "confirm" actions that
+// also close their dialog) additionally calls navBack()/navFlatten(),
+// which move the browser's OWN history position — so a native Back press
+// and clicking the visible ✕/← run through the exact same popstate
+// restoration below, never two different code paths.
+//
+// navDepth counts how many app-pushed entries are ahead of the boot entry
+// (Dashboard, depth 0). navBaseDepth is the depth to return to in ONE jump
+// when a modal/dialog closes — set only when a screen opens from a "clean"
+// base (S.modal was null), so a chain of nested pushes (e.g. Histórico →
+// detalhe → "Adicionar atrasado") can still be flattened by closeModal()
+// in a single history.go(), exactly mirroring what closeModal() already
+// does to S itself (see its own reset list) — never more, never less.
+let navDepth = 0;
+let navBaseDepth = 0;
+let navBooted = false;
+
+function navSnapshot() {
+  return {
+    tiraTimeNav: true,
+    depth: navDepth,
+    view: S.view,
+    modal: S.modal,
+    // 'list' and every tabbar modal (settings/ranking/history/finance)
+    // only ever show the ROSTER'S OWN data — S.players/S.selectedPlayerIds/
+    // S.history, fetched by openFootball() for this one id (see there). It
+    // has to travel in the snapshot so the popstate handler below can tell
+    // a stale, unloaded football apart from the one already in memory and
+    // re-fetch it, instead of restoring a screen for the wrong/no roster.
+    currentFootballId: S.currentFootballId,
+    historyViewId: S.historyViewId,
+    // historyDeleteId gates renderHistoryModal()'s "Excluir sorteio?" the
+    // same way historyViewId/addLateRecordId gate its other sub-screens —
+    // see the precedence order at the top of that function — so it has to
+    // travel in the snapshot too, or Back wouldn't close that confirm.
+    historyDeleteId: S.historyDeleteId,
+    addLateRecordId: S.addLateRecordId,
+    financeView: S.financeView,
+    financeRecordId: S.financeRecordId
+  };
+}
+
+// Called once, the first time render() actually shows the app (never
+// during the Loading/Login gate) — stamps the boot entry (Dashboard) as
+// "ours" via replaceState, so it adds no extra entry Back has to consume,
+// while still letting a later Back onto it trigger the final List→
+// Dashboard step (see navBack() below). Everything after this is pushState.
+function navBoot() {
+  history.replaceState(navSnapshot(), '', location.href);
+}
+
+// Call right after mutating S to enter a NEW screen/tab/detail/dialog —
+// never for edits within the same screen (typing, toggling a star,
+// marking presence, flipping a payment status). isNewChain marks a
+// transition that started from a "clean" base (S.modal was null before
+// this call) — everything pushed afterward while still nested under the
+// same modal shares that same floor, see navBaseDepth above.
+function navPush(isNewChain) {
+  if (isNewChain) navBaseDepth = navDepth;
+  navDepth++;
+  history.pushState(navSnapshot(), '', location.href);
+}
+
+// Relabels the CURRENT entry in place — depth/navBaseDepth untouched.
+// Used only where a screen transition should NOT add (or remove) a step
+// for Back to walk through, because the screen it replaces is never
+// meaningfully "returned to" on its own (the Sortear Times dialog, once
+// submitted, becomes Times Sorteados at that same depth — see doSort()).
+// Deliberately never combined with navBack()/navFlatten() for the same
+// transition: history.back()/go() are asynchronous (the actual position
+// change and popstate happen on a later task), so calling pushState/
+// replaceState immediately after one, in the same turn, races it — this
+// keeps every transition to exactly one History API call.
+function navReplace() {
+  history.replaceState(navSnapshot(), '', location.href);
+}
+
+// Single-level "one step up" — backToHistoryList, backToFinanceDashboard,
+// closeAddLatePlayers, goBack (Result→List), goToDashboard (List→
+// Dashboard), and the two "confirm" actions that close a one-level dialog
+// as a side effect (confirmRemovePlayer, confirmResetSelection,
+// deleteHistoryRecord). No-ops if there is nothing of ours left to pop.
+function navBack() {
+  if (navDepth > 0) history.back();
+}
+
+// "Close everything nested" in ONE jump — used by closeModal() (which
+// already resets S.modal/historyViewId/addLateRecordId/financeRecordId/
+// financeView unconditionally, regardless of how deep they were) and by
+// deleteFootballConfirmed()'s hard reset to the Dashboard on success
+// (target 0). Defaults to navBaseDepth, the floor of the current chain.
+function navFlatten(targetDepth) {
+  const target = targetDepth === undefined ? navBaseDepth : targetDepth;
+  const delta = navDepth - target;
+  if (delta > 0) history.go(-delta);
+}
+
+// The single restoration point for EVERY history move — native Back,
+// a native forward, or one of our own history.back()/go() calls above:
+// whichever entry the browser lands on, its own stored snapshot is
+// authoritative, so navDepth is resynced from it rather than tracked
+// independently (robust to swipes/multi-back gestures we never see
+// directly). When event.state is null or foreign (the entry that existed
+// before the app ever pushed anything — e.g. the real referring page),
+// there is nothing of ours to restore: the browser's own navigation
+// proceeds untouched, which is exactly how leaving the app is meant to
+// keep working (see item 8 of the spec this implements).
+window.addEventListener('popstate', async e => {
+  if (!e.state || !e.state.tiraTimeNav) return;
+  const st = e.state;
+
+  // Reload case: the page was refreshed since this entry was pushed —
+  // S.currentFootballId resets to null and nothing is fetched until a
+  // real openFootball() call (see onFirebaseAuthChange()) — so landing
+  // back on a 'list'/tabbar-modal entry for a DIFFERENT (or no-longer-
+  // in-memory) football has to redo the same fetch openFootball() does,
+  // or the restored screen would show the wrong/empty roster. Same-
+  // football moves (the common case) skip this entirely — no flicker.
+  if (st.currentFootballId !== S.currentFootballId) {
+    if (st.currentFootballId) {
+      const football = S.footballs.find(f => f.id === st.currentFootballId);
+      // Football is gone (deleted meanwhile) or S.footballs itself hasn't
+      // loaded yet (Back pressed a beat before onFirebaseAuthChange()
+      // resolves) — nothing safe to restore; leave the browser on this
+      // entry, S stays exactly as it already renders.
+      if (!football) return;
+      S.currentFootballId = st.currentFootballId;
+      S.dataLoading = true;
+      render();
+      await loadPlayers();
+      await loadHistory();
+      S.dataLoading = false;
+    } else {
+      S.currentFootballId = null;
+    }
+  }
+
+  navDepth = st.depth;
+  S.view = st.view;
+  // S.result (the drawn teams) is produced client-side by doSort() and
+  // never persisted — a reload wipes it. renderResult() destructures it
+  // unguarded, so restoring a stale 'result' entry after a reload would
+  // throw instead of rendering; land one screen short (the roster) rather
+  // than crash — the same football's players/history are already being
+  // restored above.
+  if (S.view === 'result' && !S.result) S.view = 'list';
+  S.modal = st.modal;
+  S.historyViewId = st.historyViewId;
+  S.historyDeleteId = st.historyDeleteId;
+  S.addLateRecordId = st.addLateRecordId;
+  S.financeView = st.financeView;
+  S.financeRecordId = st.financeRecordId;
+  render();
+});
+
 function render() {
   const app = document.getElementById('app');
 
@@ -4868,6 +5084,11 @@ function render() {
     const inp = document.querySelector('.finput[type="text"]');
     if (inp) { inp.focus(); inp.select(); }
   }
+
+  // Seeds the Android/browser Back button integration (see navBoot()) the
+  // first time the app actually shows real content — never during the
+  // Loading/Login gate above, which returns before reaching this point.
+  if (!navBooted) { navBooted = true; navBoot(); }
 }
 
 // ──────────────────────────────────────────────
