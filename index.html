@@ -1807,6 +1807,29 @@
       border: 1px solid var(--border);
       box-shadow: 0 -6px 40px rgba(15,23,18,.14);
       padding: 20px 18px 26px;
+      /* Root cause of the header getting clipped off the TOP of the screen
+         on mobile: the base `.modal` rule caps height with `92vh`, a
+         STATIC length resolved against the browser's largest possible
+         viewport (address bar collapsed) — not the actual visible one.
+         `.overlay` itself (this modal's flex parent, align-items:flex-end)
+         has no such issue: its `top:0`/`bottom:calc(tabbar-h + safe-area)`
+         is a real, dynamic box that already correctly excludes the bottom
+         tabbar. When Financeiro's content (filtros + resumo + cards) is
+         tall enough to actually hit the cap, on a short/toolbar-visible
+         viewport `92vh` can render TALLER than that real overlay box —
+         and since `.overlay` doesn't clip, the excess pushes the modal's
+         TOP (its header) up past the visible screen, unreachable (nothing
+         scrolls the overlay itself; only `.modal`'s own overflow-y
+         scrolls ITS content, which can't pull a mispositioned box back
+         into view). Sizing against the parent instead of the viewport
+         sidesteps the mismatch entirely: `.overlay` already has a
+         definite height (fixed position with top+bottom both set), so a
+         plain percentage here inherits its real, dynamic, tabbar-aware
+         size — no vh/dvh arithmetic needed. `env(safe-area-inset-top)`
+         only matters for a notched device in standalone/PWA mode (status
+         bar overlaps the page there); it's 0px everywhere else, so this
+         has no effect outside that case. */
+      max-height: calc(100% - env(safe-area-inset-top, 0px) - 24px);
     }
     .finance-modal .modal-head { align-items: center; margin-bottom: 18px; }
     .finance-modal .modal-title { display: flex; align-items: center; gap: 10px; }
