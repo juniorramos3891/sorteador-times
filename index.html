@@ -2323,6 +2323,7 @@ async function loadFootballs() {
     if (!f.vestColors)                 { f.vestColors = { ...DEFAULT_VEST_COLORS }; needsResave = true; }
     if (f.pricePerPlayer === undefined) { f.pricePerPlayer = 0; needsResave = true; }
     if (f.fieldCost === undefined)      { f.fieldCost = 0;      needsResave = true; }
+    if (f.pixKey === undefined)         { f.pixKey = '';        needsResave = true; }
   });
   if (needsResave) persistFootballs();
 }
@@ -2666,6 +2667,7 @@ function saveFootball() {
     vestColors: { ...DEFAULT_VEST_COLORS },
     pricePerPlayer: 0,
     fieldCost: 0,
+    pixKey: '',
     createdAt: new Date().toISOString()
   });
   persistFootballs();
@@ -2715,7 +2717,8 @@ function openSettings() {
     location: football.location,
     vestColors: { ...(football.vestColors || DEFAULT_VEST_COLORS) },
     pricePerPlayer: football.pricePerPlayer || 0,
-    fieldCost: football.fieldCost || 0
+    fieldCost: football.fieldCost || 0,
+    pixKey: football.pixKey || ''
   };
   S.modal = 'settings';
   render();
@@ -2733,7 +2736,7 @@ function saveSettings() {
   const football = S.footballs.find(f => f.id === S.currentFootballId);
   if (!football) return;
 
-  const { name, dayOfWeek, time, location, vestColors, pricePerPlayer, fieldCost } = S.settingsForm;
+  const { name, dayOfWeek, time, location, vestColors, pricePerPlayer, fieldCost, pixKey } = S.settingsForm;
   if (!name.trim())     { alert('Informe o nome do futebol.'); return; }
   if (!dayOfWeek)        { alert('Selecione o dia do jogo.'); return; }
   if (!time)              { alert('Informe o horário do jogo.'); return; }
@@ -2746,6 +2749,7 @@ function saveSettings() {
   football.vestColors = { team1: vestColors.team1, team2: vestColors.team2 };
   football.pricePerPlayer = Math.max(0, Number(pricePerPlayer) || 0);
   football.fieldCost = Math.max(0, Number(fieldCost) || 0);
+  football.pixKey = (pixKey || '').trim();
 
   persistFootballs();
   closeModal();
@@ -3031,6 +3035,12 @@ function buildFinanceShareText(record, football) {
   txt += `\nTotal: ${formatBRL(f.totalExpected)}\n`;
   txt += `Recebido: ${formatBRL(f.totalReceived)}\n`;
   txt += `Em aberto: ${formatBRL(f.totalOpen)}\n`;
+  // Snapshotted on the record itself (saveResultToHistory) — never falls
+  // back to the football's CURRENT Pix key, unlike pricePerPlayer/fieldCost
+  // above, so a Pix key added/changed later never appears retroactively on
+  // an older pelada's share text. Records saved before this field existed
+  // simply have no pixKey, which is indistinguishable from "left blank".
+  if (record.pixKey) txt += `\n💠 Pix: ${record.pixKey}\n`;
   return txt;
 }
 
@@ -3355,6 +3365,7 @@ function saveResultToHistory() {
     // field existed at all).
     pricePerPlayer: (football && football.pricePerPlayer) || 0,
     fieldCost: (football && football.fieldCost) || 0,
+    pixKey: (football && football.pixKey) || '',
     // Deep, fully independent copy — JSON round-trip severs any reference
     // to the live player objects in S.players, so a later cadastro edit
     // (name/stars/position) can never change an already-saved record.
@@ -3765,6 +3776,14 @@ function renderSettingsModal() {
                 value="${settingsForm.fieldCost}"
                 oninput="S.settingsForm.fieldCost=this.value">
             </div>
+          </div>
+
+          <div class="fgroup">
+            <label class="flabel">Chave Pix</label>
+            <input class="finput" type="text" autocomplete="off"
+              placeholder="Digite a chave Pix"
+              value="${esc(settingsForm.pixKey)}"
+              oninput="S.settingsForm.pixKey=this.value">
           </div>
         </div>
       </div>
