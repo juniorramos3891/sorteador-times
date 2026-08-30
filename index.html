@@ -1367,11 +1367,13 @@
        `.btn-secondary` are all shared with other modals, so everything is
        scoped under `.settings-modal` (added only to this modal's own outer
        wrapper) or uses classes unique to it (`.settings-section`,
-       `.vestcolor-*`, `.money-*`, `.field-hint`). The modal is split into a
-       fixed header, a scrolling `.modal-body`, and a fixed footer so
-       "Salvar alterações" stays reachable while the fields scroll — same
-       settingsForm fields/oninput/onchange and saveSettings()/closeModal()
-       handlers as before, purely visual/structural for layout. */
+       `.vestcolor-*`, `.money-*`, `.field-hint`). The modal is a fixed
+       header (`.modal-head`) over ONE scrolling `.modal-body` — fields,
+       `.settings-footer` (Salvar/Cancelar) and `.settings-danger-zone`
+       (Excluir grupo) all live inside it now, one continuous flow instead
+       of a separate fixed block below the fields — same settingsForm
+       fields/oninput/onchange and saveSettings()/closeModal() handlers as
+       before, purely visual/structural for layout. */
     .settings-modal .modal {
       display: flex;
       flex-direction: column;
@@ -1459,7 +1461,7 @@
     .settings-modal .money-input { padding-left: 34px; }
 
     .settings-footer {
-      flex: none;
+      margin: 8px -18px 0;
       padding: 12px 18px calc(16px + env(safe-area-inset-bottom, 0px));
       border-top: 1px solid rgba(17,24,21,.06);
       background: var(--surface);
@@ -1483,14 +1485,14 @@
     }
     .settings-modal .btn-secondary:hover { background: var(--bg); color: var(--text); }
 
-    /* "Zona de perigo" — its own fixed block below .settings-footer,
-       OUTSIDE .modal-body's scroll area (flex: none, same as .modal-head/
-       .settings-footer) so it's always visible without scrolling the form
-       — a section appended inside .modal-body was easy to miss below the
-       fold on shorter screens (max-height: 88vh above). Own horizontal
-       padding since it no longer inherits .modal-body's. */
+    /* "Zona de perigo" — flows inside .modal-body right after
+       .settings-footer, same single scroll as the fields above (see the
+       comment on .settings-modal .modal). Negative side margins + its own
+       matching horizontal padding let the border-top/background still
+       bleed the full modal width, exactly as when this sat outside
+       .modal-body — only where it scrolls changed, not how it looks. */
     .settings-danger-zone {
-      flex: none;
+      margin: 0 -18px;
       padding: 14px 18px calc(16px + env(safe-area-inset-bottom, 0px));
       border-top: 1px solid var(--border);
       background: var(--surface);
@@ -3849,23 +3851,23 @@ function renderSettingsModal() {
               oninput="S.settingsForm.pixRecipientName=this.value">
           </div>
         </div>
-      </div>
 
-      <div class="settings-footer">
-        <button class="btn-primary" onclick="saveSettings()">
-          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3M8 21v-6h8v6"/></svg>
-          Salvar alterações
-        </button>
-        <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
-      </div>
+        <div class="settings-footer">
+          <button class="btn-primary" onclick="saveSettings()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M5 3h11l3 3v15H5z"/><path d="M8 3v5h8V3M8 21v-6h8v6"/></svg>
+            Salvar alterações
+          </button>
+          <button class="btn-secondary" onclick="closeModal()">Cancelar</button>
+        </div>
 
-      <div class="settings-danger-zone">
-        <div class="sec-title sec-title-danger">Zona de perigo</div>
-        <p class="field-hint">Excluir este futebol remove permanentemente os jogadores, o histórico de sorteios, a presença/seleção e todos os demais dados vinculados a ele. Essa ação não pode ser desfeita.</p>
-        <button type="button" class="btn-danger-outline" onclick="requestDeleteFootball()">
-          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>
-          Excluir grupo
-        </button>
+        <div class="settings-danger-zone">
+          <div class="sec-title sec-title-danger">Zona de perigo</div>
+          <p class="field-hint">Excluir este futebol remove permanentemente os jogadores, o histórico de sorteios, a presença/seleção e todos os demais dados vinculados a ele. Essa ação não pode ser desfeita.</p>
+          <button type="button" class="btn-danger-outline" onclick="requestDeleteFootball()">
+            <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 7h16"/><path d="M10 11v6M14 11v6"/><path d="M6 7l1 13a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-13"/><path d="M9 7V4a1 1 0 0 1 1-1h4a1 1 0 0 1 1 1v3"/></svg>
+            Excluir grupo
+          </button>
+        </div>
       </div>
     </div>
   </div>`;
